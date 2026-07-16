@@ -44,7 +44,7 @@ jobs:
           - ubuntu:24.04
           - ubuntu:26.04
           - fedora:latest
-          - almalinux:9 # RHEL-compatible; may need EPEL / RHEL-column tuning in compiler-unix.sh — a break here is informative
+          - almalinux:10 # RHEL-compatible
     steps:
       # Minimal base images ship without git, Python, or the Python build
       # backends. actions/checkout needs git; compiler-unix.sh installs the
