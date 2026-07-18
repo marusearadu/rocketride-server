@@ -47,6 +47,7 @@ import type { ConnectionMode } from 'shared';
 import { BaseManager } from './base-manager';
 import { RemoteManager } from './remote-manager';
 import { ConnectionFailure, withTimeout } from './errors';
+import { shouldReloadForTokenStorageUpdate } from './tokenStorageUpdate';
 import { getStoredVerifier, clearStoredVerifier } from '../util/pkce';
 import {
 	LS_TOKEN,
@@ -315,6 +316,33 @@ export class ConnectionManager implements IConnectionManager {
 		// click would hit the guard and do nothing. Release it on bfcache restore
 		// so the button works again without a manual page refresh.
 		if (typeof window !== 'undefined') {
+			window.addEventListener('storage', (event) => {
+				if (event.key !== LS_TOKEN) return;
+
+				if (event.newValue === null) {
+					this.accountInfo = undefined;
+					this.pendingEvents.clear();
+					this.clearServicesCache();
+					this.updateConnectionStatus({
+						state: ConnectionState.DISCONNECTED,
+						hasCredentials: false,
+						lastError: undefined,
+						progressMessage: undefined,
+					});
+					window.location.reload();
+					return;
+				}
+
+				if (shouldReloadForTokenStorageUpdate({
+					oldValue: event.oldValue,
+					newValue: event.newValue,
+					currentUserToken: this.accountInfo?.userToken,
+					hasAccountInfo: Boolean(this.accountInfo),
+				})) {
+					window.location.reload();
+				}
+			});
+
 			window.addEventListener('pageshow', (e) => {
 				if ((e as PageTransitionEvent).persisted) {
 					this.oauthStarted = false;
@@ -839,21 +867,31 @@ export class ConnectionManager implements IConnectionManager {
 	// TOKEN STORAGE
 	// =========================================================================
 
-	/** Persist a user token to sessionStorage. */
+	/** Persist a user token to localStorage. */
 	public saveToken(token: string): void {
-		try { sessionStorage.setItem(LS_TOKEN, token); } catch (e) {
+		try { localStorage.setItem(LS_TOKEN, token); } catch (e) {
 			console.error('[ConnectionManager] Failed to save token:', e);
 		}
 	}
 
-	/** Load token from sessionStorage. Returns empty string if unavailable. */
+	/** Load token from localStorage. Migrates the old sessionStorage value once. */
 	public loadToken(): string {
-		try { return sessionStorage.getItem(LS_TOKEN) ?? ''; } catch { return ''; }
+		try {
+			const token = localStorage.getItem(LS_TOKEN);
+			if (token !== null) return token;
+
+			const sessionToken = sessionStorage.getItem(LS_TOKEN);
+			if (sessionToken === null) return '';
+
+			localStorage.setItem(LS_TOKEN, sessionToken);
+			sessionStorage.removeItem(LS_TOKEN);
+			return sessionToken;
+		} catch { return ''; }
 	}
 
 	/** Clear the persisted token. */
 	public clearToken(): void {
-		try { sessionStorage.removeItem(LS_TOKEN); } catch (e) {
+		try { localStorage.removeItem(LS_TOKEN); } catch (e) {
 			console.error('[ConnectionManager] Failed to clear token:', e);
 		}
 	}
